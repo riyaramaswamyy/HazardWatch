@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HazardWatch — Live Disaster & Hazard Intelligence</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css"/>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0b0e;
+    --surface: #12141a;
+    --surface2: #1a1d26;
+    --surface3: #22263a;
+    --border: rgba(255,255,255,0.07);
+    --border-strong: rgba(255,255,255,0.14);
+    --text: #e8eaf0;
+    --text-muted: #6b7094;
+    --text-dim: #3d4262;
+    --accent: #4f8ef7;
+    --accent-dim: rgba(79,142,247,0.15);
+    --critical: #f74f4f;
+    --critical-dim: rgba(247,79,79,0.15);
+    --high: #f7994f;
+    --high-dim: rgba(247,153,79,0.12);
+    --medium: #f7d44f;
+    --medium-dim: rgba(247,212,79,0.10);
+    --low: #4ff7a0;
+    --low-dim: rgba(79,247,160,0.10);
+    --mono: 'SF Mono', 'Fira Code', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+    font-size: 13px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* HEADER */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 0 20px;
+    height: 48px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+  }
+  .logo-pulse {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--critical);
+    animation: pulse-ring 1.4s ease-out infinite;
+    flex-shrink: 0;
+  }
+  @keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 0 rgba(247,79,79,0.6); }
+    70% { box-shadow: 0 0 0 8px rgba(247,79,79,0); }
+    100% { box-shadow: 0 0 0 0 rgba(247,79,79,0); }
+  }
+  .header-stats {
+    display: flex;
+    gap: 24px;
+    margin-left: auto;
+  }
+  .hstat {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .hstat-val {
+    color: var(--text);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+  .conn-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--low);
+  }
+  .conn-dot.offline { background: var(--critical); animation: none; }
+  .conn-dot.live { animation: blink 2s ease-in-out infinite; }
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  /* FILTER BAR */
+  .filterbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  .filter-label { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; margin-right: 4px; }
+  .filter-btn {
+    padding: 4px 10px;
+    border-radius: 20px;
+    border: 1px solid var(--border-strong);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .filter-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .filter-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .filter-btn.critical.active { background: var(--critical-dim); border-color: var(--critical); color: var(--critical); }
+  .filter-btn.high.active { background: var(--high-dim); border-color: var(--high); color: var(--high); }
+  .filter-btn.medium.active { background: var(--medium-dim); border-color: var(--medium); color: var(--medium); }
+  .filter-btn.low.active { background: var(--low-dim); border-color: var(--low); color: var(--low); }
+  .filter-sep { width: 1px; height: 16px; background: var(--border-strong); margin: 0 4px; }
+  .pause-btn {
+    margin-left: auto;
+    padding: 4px 12px;
+    border-radius: 4px;
+    border: 1px solid var(--border-strong);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .pause-btn:hover { color: var(--text); border-color: var(--border-strong); }
+  .pause-btn.paused { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+
+  /* MAIN LAYOUT */
+  .main {
+    display: grid;
+    grid-template-columns: 340px 1fr 280px;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* LEFT PANEL - FEED */
+  .feed-panel {
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .panel-header {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .panel-header-count {
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+    font-size: 12px;
+  }
+  .feed {
+    overflow-y: auto;
+    flex: 1;
+  }
+  .feed::-webkit-scrollbar { width: 4px; }
+  .feed::-webkit-scrollbar-track { background: transparent; }
+  .feed::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 2px; }
+
+  .incident-card {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.1s;
+    animation: slide-in 0.2s ease-out;
+  }
+  @keyframes slide-in {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .incident-card:hover { background: var(--surface2); }
+  .incident-card.selected { background: var(--surface3); border-left: 2px solid var(--accent); }
+  .incident-card.urgency-critical { border-left: 2px solid var(--critical); }
+  .incident-card.urgency-high { border-left: 2px solid var(--high); }
+  .incident-card.urgency-medium { border-left: 2px solid var(--medium); }
+  .incident-card.urgency-low { border-left: 2px solid var(--low); }
+
+  .ic-top {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+  .urgency-badge {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+  .urgency-badge.critical { background: var(--critical-dim); color: var(--critical); }
+  .urgency-badge.high { background: var(--high-dim); color: var(--high); }
+  .urgency-badge.medium { background: var(--medium-dim); color: var(--medium); }
+  .urgency-badge.low { background: var(--low-dim); color: var(--low); }
+  .ic-type {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .ic-time {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .ic-location {
+    font-size: 11px;
+    color: var(--accent);
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .ic-text {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .ic-keywords {
+    margin-top: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .kw-tag {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 2px;
+    background: var(--surface3);
+    color: var(--text-dim);
+  }
+  .ic-score {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-left: auto;
+  }
+
+  /* CENTER - MAP */
+  .map-panel { position: relative; }
+  #map {
+    width: 100%;
+    height: 100%;
+    background: #0d0f18;
+  }
+  .map-overlay {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .map-pill {
+    background: rgba(10,11,14,0.85);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    padding: 5px 10px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .map-pill strong { color: var(--text); }
+
+  /* RIGHT PANEL - DETAIL + STATS */
+  .detail-panel {
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .detail-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+  }
+  .detail-content::-webkit-scrollbar { width: 3px; }
+  .detail-content::-webkit-scrollbar-thumb { background: var(--border-strong); }
+
+  .detail-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 200px;
+    color: var(--text-dim);
+    font-size: 12px;
+    text-align: center;
+    gap: 8px;
+  }
+  .detail-empty svg { opacity: 0.2; }
+
+  .detail-urgency-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .detail-badge {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 3px 8px;
+    border-radius: 4px;
+  }
+  .detail-badge.critical { background: var(--critical-dim); color: var(--critical); border: 1px solid var(--critical); }
+  .detail-badge.high { background: var(--high-dim); color: var(--high); border: 1px solid var(--high); }
+  .detail-badge.medium { background: var(--medium-dim); color: var(--medium); border: 1px solid var(--medium); }
+  .detail-badge.low { background: var(--low-dim); color: var(--low); border: 1px solid var(--low); }
+
+  .detail-meta { font-size: 11px; color: var(--text-dim); }
+  .detail-loc {
+    font-size: 13px;
+    color: var(--accent);
+    font-weight: 500;
+    margin-bottom: 10px;
+  }
+  .detail-text {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+  }
+  .detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .detail-row:last-child { border-bottom: none; }
+  .detail-row-label { color: var(--text-muted); }
+  .detail-row-val { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+  /* Stats section */
+  .stats-panel {
+    border-top: 1px solid var(--border);
+    padding: 12px 16px;
+    flex-shrink: 0;
+  }
+  .stats-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .stat-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+  }
+  .stat-box-val {
+    font-size: 20px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    margin-bottom: 3px;
+  }
+  .stat-box-val.critical { color: var(--critical); }
+  .stat-box-val.high { color: var(--high); }
+  .stat-box-val.medium { color: var(--medium); }
+  .stat-box-val.total { color: var(--text); }
+  .stat-box-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+
+  /* Urgency bar chart */
+  .urgency-bars { margin-top: 12px; }
+  .ubar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .ubar-label { width: 50px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; }
+  .ubar-track { flex: 1; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .ubar-fill { height: 100%; border-radius: 2px; transition: width 0.5s ease; }
+  .ubar-fill.critical { background: var(--critical); }
+  .ubar-fill.high { background: var(--high); }
+  .ubar-fill.medium { background: var(--medium); }
+  .ubar-fill.low { background: var(--low); }
+  .ubar-count { width: 24px; text-align: right; font-size: 10px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+  /* Map styling */
+  .leaflet-container { background: #0d0f18 !important; }
+  .leaflet-tile { filter: brightness(0.35) saturate(0.4) hue-rotate(200deg); }
+  .leaflet-control-zoom { border: 1px solid var(--border-strong) !important; }
+  .leaflet-control-zoom a { background: var(--surface) !important; color: var(--text-muted) !important; border-color: var(--border-strong) !important; }
+  .leaflet-control-attribution { background: rgba(10,11,14,0.7) !important; color: var(--text-dim) !important; font-size: 9px !important; }
+
+  /* Custom map markers */
+  .pulse-marker { position: relative; width: 22px; height: 22px; }
+  .pulse-marker-inner {
+    width: 22px; height: 22px;
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+  }
+  .pulse-marker-inner svg { width: 13px; height: 13px; }
+  .pulse-marker-ring {
+    position: absolute;
+    top: 1px; left: 1px;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    animation: marker-pulse 2s ease-out infinite;
+  }
+  @keyframes marker-pulse {
+    0% { opacity: 0.8; transform: scale(0.5); }
+    100% { opacity: 0; transform: scale(2); }
+  }
+  .critical-marker .pulse-marker-inner { background: var(--critical); box-shadow: 0 0 10px var(--critical); }
+  .critical-marker .pulse-marker-ring { border: 2px solid var(--critical); }
+  .high-marker .pulse-marker-inner { background: var(--high); box-shadow: 0 0 6px var(--high); }
+  .high-marker .pulse-marker-ring { border: 2px solid var(--high); }
+  .medium-marker .pulse-marker-inner { background: var(--medium); }
+  .medium-marker .pulse-marker-ring { border: 2px solid var(--medium); }
+  .low-marker .pulse-marker-inner { background: var(--low); }
+  .low-marker .pulse-marker-ring { border: 2px solid var(--low); animation: none; }
+
+  .leaflet-popup-content-wrapper {
+    background: var(--surface) !important;
+    border: 1px solid var(--border-strong) !important;
+    border-radius: 6px !important;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5) !important;
+    color: var(--text) !important;
+    font-family: -apple-system, sans-serif !important;
+    font-size: 12px !important;
+  }
+  .leaflet-popup-tip { background: var(--surface) !important; }
+  .leaflet-popup-content { margin: 10px 14px !important; }
+
+  /* No data state */
+  .demo-notice {
+    position: absolute;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    background: rgba(10,11,14,0.9);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="logo">
+    <div class="logo-pulse"></div>
+    HazardWatch
+    <span style="font-size:11px;font-weight:400;color:var(--text-dim);margin-left:4px;">Live Disaster Intelligence</span>
+  </div>
+  <div class="header-stats">
+    <div class="hstat">
+      <div class="conn-dot live" id="connDot"></div>
+      <span id="connLabel" class="hstat-val">Connecting...</span>
+    </div>
+    <div class="hstat">
+      Incidents/min <span class="hstat-val" id="ipm">0</span>
+    </div>
+    <div class="hstat">
+      Active alerts <span class="hstat-val" id="activeAlerts" style="color:var(--critical)">0</span>
+    </div>
+    <div class="hstat" style="font-family:var(--mono);font-size:11px;color:var(--text-dim)" id="clock"></div>
+  </div>
+</header>
+
+<div class="filterbar">
+  <span class="filter-label">Filter</span>
+  <button class="filter-btn active" onclick="setFilter('all', this)">All</button>
+  <button class="filter-btn critical" onclick="setFilter('critical', this)">Critical</button>
+  <button class="filter-btn high" onclick="setFilter('high', this)">High</button>
+  <button class="filter-btn medium" onclick="setFilter('medium', this)">Medium</button>
+  <button class="filter-btn low" onclick="setFilter('low', this)">Low</button>
+  <div class="filter-sep"></div>
+  <span class="filter-label">Type</span>
+  <button class="filter-btn" data-type="earthquake" onclick="setTypeFilter('earthquake', this)">Earthquake</button>
+  <button class="filter-btn" data-type="weather" onclick="setTypeFilter('weather', this)">Weather</button>
+  <button class="filter-btn" data-type="flood" onclick="setTypeFilter('flood', this)">Flood</button>
+  <button class="filter-btn" data-type="fire" onclick="setTypeFilter('fire', this)">Fire</button>
+  <button class="pause-btn" id="pauseBtn" onclick="togglePause()">⏸ Pause</button>
+</div>
+
+<div class="main">
+  <!-- LEFT: FEED -->
+  <div class="feed-panel">
+    <div class="panel-header">
+      Live feed
+      <span class="panel-header-count" id="feedCount">0 incidents</span>
+    </div>
+    <div class="feed" id="feed">
+      <div style="padding:24px 16px; text-align:center; color:var(--text-dim); font-size:12px; line-height:1.8;">
+        Fetching live emergency data...<br>
+        <span style="font-size:11px;opacity:0.6">USGS · NWS · FEMA</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- CENTER: MAP -->
+  <div class="map-panel">
+    <div id="map"></div>
+    <div class="map-overlay">
+      <div class="map-pill">
+        <strong id="mapCount">0</strong> incidents mapped
+      </div>
+      <div class="map-pill" id="focusedCity" style="display:none">
+        Focused: <strong id="focusedCityName">—</strong>
+      </div>
+      <div class="map-pill" style="display:flex;flex-direction:column;gap:5px;padding:8px 10px;">
+        <div style="display:flex;align-items:center;gap:6px"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#9aa0c4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4l2-6 3 12 3-9 2 5h6"/></svg> Earthquake</div>
+        <div style="display:flex;align-items:center;gap:6px"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#9aa0c4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 7a4.5 4.5 0 0 1 8.9-1A4 4 0 0 1 18 14H7a4 4 0 0 1-1-7.87"/></svg> Weather alert</div>
+        <div style="display:flex;align-items:center;gap:6px"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#9aa0c4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 17c1.5 1.3 3 1.3 4.5 0s3-1.3 4.5 0 3 1.3 4.5 0 3-1.3 4.5 0"/><path d="M2 12c1.5 1.3 3 1.3 4.5 0s3-1.3 4.5 0 3 1.3 4.5 0 3-1.3 4.5 0"/></svg> Flood</div>
+        <div style="display:flex;align-items:center;gap:6px"><svg width="11" height="11" viewBox="0 0 24 24" fill="#9aa0c4" stroke="none"><path d="M12 2c1 3-3 4-3 8a3 3 0 1 0 6 0c1.5 1 2 3 2 5a5 5 0 1 1-10 0c0-4 3-5 3-9 0-2 1-3 2-4z"/></svg> Fire</div>
+      </div>
+    </div>
+    <div id="debugLog" style="position:absolute;bottom:48px;left:50%;transform:translateX(-50%);z-index:1000;background:rgba(10,11,14,0.9);border:1px solid var(--border-strong);border-radius:6px;padding:6px 14px;font-size:11px;color:var(--text-muted);white-space:nowrap;display:block"></div>
+  <div class="demo-notice" id="demoNotice" style="display:none">
+      Loading live data from USGS &amp; NWS...
+    </div>
+  </div>
+
+  <!-- RIGHT: DETAIL + STATS -->
+  <div class="detail-panel">
+    <div class="panel-header">Incident detail</div>
+    <div class="detail-content" id="detailContent">
+      <div class="detail-empty">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        Select an incident<br>to view details
+      </div>
+    </div>
+    <div class="stats-panel">
+      <div class="stats-title">Summary</div>
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-box-val critical" id="statCritical">0</div>
+          <div class="stat-box-label">Critical</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-box-val high" id="statHigh">0</div>
+          <div class="stat-box-label">High</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-box-val medium" id="statMedium">0</div>
+          <div class="stat-box-label">Medium</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-box-val total" id="statTotal">0</div>
+          <div class="stat-box-label">Total</div>
+        </div>
+      </div>
+      <div class="urgency-bars" style="margin-top:14px;">
+        <div class="ubar-row">
+          <div class="ubar-label">Critical</div>
+          <div class="ubar-track"><div class="ubar-fill critical" id="barCritical" style="width:0%"></div></div>
+          <div class="ubar-count" id="barCriticalN">0</div>
+        </div>
+        <div class="ubar-row">
+          <div class="ubar-label">High</div>
+          <div class="ubar-track"><div class="ubar-fill high" id="barHigh" style="width:0%"></div></div>
+          <div class="ubar-count" id="barHighN">0</div>
+        </div>
+        <div class="ubar-row">
+          <div class="ubar-label">Medium</div>
+          <div class="ubar-track"><div class="ubar-fill medium" id="barMedium" style="width:0%"></div></div>
+          <div class="ubar-count" id="barMediumN">0</div>
+        </div>
+        <div class="ubar-row">
+          <div class="ubar-label">Low</div>
+          <div class="ubar-track"><div class="ubar-fill low" id="barLow" style="width:0%"></div></div>
+          <div class="ubar-count" id="barLowN">0</div>
+        </div>
+      </div>
+    </div>
+  </div>
+<script>
+// ── CONSTANTS ────────────────────────────────────────────────────────────────
+const SOURCE_COLORS = {
+  usgs: { label: 'USGS', color: '#f7994f' },
+  nws:  { label: 'NWS',  color: '#4f8ef7' },
+};
+
+const NWS_URGENCY_MAP = {
+  'Tornado Warning':'critical','Tornado Watch':'high',
+  'Flash Flood Emergency':'critical','Flash Flood Warning':'high','Flash Flood Watch':'medium',
+  'Flood Warning':'high','Flood Watch':'medium','Flood Advisory':'low',
+  'Hurricane Warning':'critical','Hurricane Watch':'high',
+  'Tropical Storm Warning':'high','Tropical Storm Watch':'medium',
+  'Severe Thunderstorm Warning':'high','Severe Thunderstorm Watch':'medium',
+  'Winter Storm Warning':'high','Winter Storm Watch':'medium',
+  'Blizzard Warning':'critical','Ice Storm Warning':'high',
+  'Extreme Cold Warning':'high','Excessive Heat Warning':'high',
+  'Red Flag Warning':'high','Fire Weather Watch':'medium',
+  'Dust Storm Warning':'high','Dense Fog Advisory':'low',
+  'Wind Advisory':'low','Frost Advisory':'low',
+};
+
+// ── STATE ────────────────────────────────────────────────────────────────────
+let incidents = [];
+let markers = {};
+let map;
+let activeFilter = 'all';
+let typeFilter = null;
+let paused = false;
+let selectedId = null;
+let ipmHistory = [];
+
+// ── HELPERS ──────────────────────────────────────────────────────────────────
+function timeAgo(ts) {
+  const diff = Math.floor((Date.now() - new Date(ts)) / 1000);
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+  return `${Math.floor(diff/86400)}d ago`;
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function setStatus(label, live) {
+  document.getElementById('connLabel').textContent = label;
+  document.getElementById('connDot').className = 'conn-dot' + (live ? ' live' : ' offline');
+}
+
+function showDebug(msg) {
+  const el = document.getElementById('debugLog');
+  if (el) el.innerHTML = msg;
+}
+
+function nwsCentroid(feature) {
+  try {
+    const geo = feature.geometry;
+    if (!geo) return null;
+    if (geo.type === 'Point') return { lat: geo.coordinates[1], lng: geo.coordinates[0] };
+    const coords = geo.type === 'Polygon' ? geo.coordinates[0] :
+                   geo.type === 'MultiPolygon' ? geo.coordinates[0][0] : null;
+    if (!coords || !coords.length) return null;
+    return {
+      lat: coords.reduce((s,c) => s + c[1], 0) / coords.length,
+      lng: coords.reduce((s,c) => s + c[0], 0) / coords.length,
+    };
+  } catch(e) { return null; }
+}
+
+// ── CLOCK ────────────────────────────────────────────────────────────────────
+function updateClock() {
+  document.getElementById('clock').textContent = new Date().toUTCString().slice(17,25) + ' UTC';
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ── MAP ──────────────────────────────────────────────────────────────────────
+function initMap() {
+  map = L.map('map', { center:[37.8,-96], zoom:4, zoomControl:true });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution:'© OpenStreetMap', maxZoom:18
+  }).addTo(map);
+}
+
+function createMarker(incident) {
+  const colors = { critical:'#f74f4f', high:'#f7994f', medium:'#f7d44f', low:'#4ff7a0' };
+  const size   = 22;
+  const color  = colors[incident.urgency] || colors.low;
+  const src    = SOURCE_COLORS[incident.source] || { label: incident.source||'', color:'#888' };
+
+  // Distinct icon glyph per emergency type — fill="white" so it shows on any urgency color
+  const ICONS = {
+    earthquake: '<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4l2-6 3 12 3-9 2 5h6"/></svg>',
+    weather:    '<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 7a4.5 4.5 0 0 1 8.9-1A4 4 0 0 1 18 14H7a4 4 0 0 1-1-7.87"/><path d="M8 19l-1.5 2.5"/><path d="M12 19l-1.5 2.5"/><path d="M16 19l-1.5 2.5"/></svg>',
+    flood:      '<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 17c1.5 1.3 3 1.3 4.5 0s3-1.3 4.5 0 3 1.3 4.5 0 3-1.3 4.5 0"/><path d="M2 12c1.5 1.3 3 1.3 4.5 0s3-1.3 4.5 0 3 1.3 4.5 0 3-1.3 4.5 0"/></svg>',
+    fire:       '<svg viewBox="0 0 24 24" fill="white" stroke="none"><path d="M12 2c1 3-3 4-3 8a3 3 0 1 0 6 0c1.5 1 2 3 2 5a5 5 0 1 1-10 0c0-4 3-5 3-9 0-2 1-3 2-4z"/></svg>',
+    emergency:  '<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/><path d="M10.3 3.9 2.5 17a1.6 1.6 0 0 0 1.4 2.5h16.2a1.6 1.6 0 0 0 1.4-2.5L13.7 3.9a1.6 1.6 0 0 0-2.8 0z"/></svg>',
+  };
+  const glyph = ICONS[incident.type] || ICONS.emergency;
+
+  const icon = L.divIcon({
+    html: `<div class="pulse-marker ${incident.urgency}-marker">
+      <div class="pulse-marker-ring"></div>
+      <div class="pulse-marker-inner">${glyph}</div>
+    </div>`,
+    className:'', iconSize:[size,size], iconAnchor:[size/2,size/2],
+  });
+  const marker = L.marker([incident.location.lat, incident.location.lng], { icon })
+    .addTo(map)
+    .bindPopup(`
+      <div style="min-width:200px">
+        <div style="font-weight:600;color:${color};font-size:11px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">
+          ${incident.urgency} — ${incident.type}
+          <span style="float:right;font-size:9px;background:${color}22;padding:1px 5px;border-radius:2px">${src.label}</span>
+        </div>
+        <div style="font-weight:500;margin-bottom:4px;color:#e8eaf0">${incident.location.city}</div>
+        <div style="color:#6b7094;font-size:11px;line-height:1.5">${incident.text.slice(0,140)}${incident.text.length>140?'...':''}</div>
+        <div style="color:#3d4262;font-size:10px;margin-top:6px">${timeAgo(incident.timestamp)}</div>
+      </div>
+    `);
+  marker.on('click', () => selectIncident(incident.id));
+  return marker;
+}
+
+// ── ADD INCIDENT ─────────────────────────────────────────────────────────────
+function addIncident(incident) {
+  if (incidents.find(i => i.id === incident.id)) return;
+  incidents.unshift(incident);
+  if (incidents.length > 500) incidents.pop();
+  ipmHistory.push(Date.now());
+  if (incident.location && map) {
+    markers[incident.id] = createMarker(incident);
+  }
+  if (!paused) renderFeed();
+  updateStats();
+  updateActiveAlerts();
+}
+
+// ── RENDER FEED ──────────────────────────────────────────────────────────────
+function renderFeed() {
+  const feed = document.getElementById('feed');
+  const filtered = getFiltered();
+  filtered.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+  document.getElementById('feedCount').textContent = `${filtered.length} incident${filtered.length!==1?'s':''}`;
+
+  if (filtered.length === 0) {
+    feed.innerHTML = `<div style="padding:24px 16px;text-align:center;color:var(--text-dim);font-size:12px;line-height:1.8;">
+      Fetching live emergency data...<br>
+      <span style="font-size:11px;opacity:0.6">USGS · NWS</span>
+    </div>`;
+    return;
+  }
+
+  feed.innerHTML = filtered.slice(0,100).map(inc => {
+    const src = SOURCE_COLORS[inc.source] || { label: inc.source||'', color:'#888' };
+    return `
+    <div class="incident-card urgency-${inc.urgency} ${selectedId===inc.id?'selected':''}"
+         data-id="${escapeHtml(inc.id)}">
+      <div class="ic-top">
+        <span class="urgency-badge ${inc.urgency}">${inc.urgency}</span>
+        <span class="ic-type">${inc.type}</span>
+        <span class="ic-time">${timeAgo(inc.timestamp)}</span>
+      </div>
+      <div class="ic-location">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        ${escapeHtml(inc.location?.city || 'Unknown')}
+      </div>
+      <div class="ic-text">${escapeHtml(inc.text)}</div>
+      <div style="display:flex;align-items:center;gap:5px;margin-top:5px">
+        <span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:2px;background:${src.color}22;color:${src.color};letter-spacing:0.05em">${src.label}</span>
+        ${(inc.keywords||[]).slice(0,3).map(k=>`<span class="kw-tag">${escapeHtml(k)}</span>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+
+  // Attach click listeners (avoids inline onclick string-escaping issues entirely)
+  feed.querySelectorAll('.incident-card').forEach(card => {
+    card.addEventListener('click', () => selectIncident(card.getAttribute('data-id')));
+  });
+}
+
+// ── SELECT INCIDENT ──────────────────────────────────────────────────────────
+function selectIncident(id) {
+  selectedId = id;
+  const inc = incidents.find(i => i.id === id);
+  if (!inc) return;
+  if (inc.location && map) {
+    map.flyTo([inc.location.lat, inc.location.lng], 7, { duration:0.8 });
+    if (markers[id]) {
+      markers[id].openPopup();
+      document.getElementById('focusedCity').style.display = 'block';
+      document.getElementById('focusedCityName').textContent = inc.location.city;
+    }
+  }
+  const src = SOURCE_COLORS[inc.source] || { label:inc.source||'', color:'#888' };
+  document.getElementById('detailContent').innerHTML = `
+    <div class="detail-urgency-header">
+      <span class="detail-badge ${inc.urgency}">${inc.urgency}</span>
+      <span class="detail-meta">${escapeHtml(inc.type)} · ${timeAgo(inc.timestamp)}</span>
+    </div>
+    <div class="detail-loc">📍 ${escapeHtml(inc.location?.city || 'Unknown location')}</div>
+    <div class="detail-text">${escapeHtml(inc.text)}</div>
+    <div class="detail-row">
+      <span class="detail-row-label">Source</span>
+      <span class="detail-row-val"><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:3px;background:${src.color}22;color:${src.color};border:1px solid ${src.color}55">${src.label}</span></span>
+    </div>
+    ${inc.detail ? `<div class="detail-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+      <span class="detail-row-label">Details</span>
+      <span style="font-size:11px;color:var(--text-muted);line-height:1.6">${escapeHtml(inc.detail)}</span>
+    </div>` : ''}
+    <div class="detail-row">
+      <span class="detail-row-label">Severity</span>
+      <span class="detail-row-val" style="color:var(--${inc.urgency==='critical'?'critical':inc.urgency==='low'?'low':inc.urgency})">${inc.score.toFixed(1)}/10</span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-row-label">Reported by</span>
+      <span class="detail-row-val">${escapeHtml(inc.author||'Unknown')}</span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-row-label">Coordinates</span>
+      <span class="detail-row-val" style="font-family:var(--mono);font-size:11px">${inc.location ? inc.location.lat.toFixed(4)+', '+inc.location.lng.toFixed(4) : '—'}</span>
+    </div>
+    ${inc.url ? `<div class="detail-row"><a href="${inc.url}" target="_blank" style="color:var(--accent);font-size:12px">View source →</a></div>` : ''}
+  `;
+  renderFeed();
+}
+
+// ── STATS ────────────────────────────────────────────────────────────────────
+function updateStats() {
+  const counts = { critical:0, high:0, medium:0, low:0 };
+  incidents.forEach(i => { counts[i.urgency] = (counts[i.urgency]||0)+1; });
+  const total = incidents.length;
+  document.getElementById('statCritical').textContent = counts.critical;
+  document.getElementById('statHigh').textContent = counts.high;
+  document.getElementById('statMedium').textContent = counts.medium;
+  document.getElementById('statTotal').textContent = total;
+  document.getElementById('mapCount').textContent = Object.keys(markers).length;
+  const max = Math.max(1, total);
+  ['critical','high','medium','low'].forEach(u => {
+    const cap = u[0].toUpperCase()+u.slice(1);
+    document.getElementById('bar'+cap).style.width = Math.round(counts[u]/max*100)+'%';
+    document.getElementById('bar'+cap+'N').textContent = counts[u];
+  });
+}
+
+function updateActiveAlerts() {
+  document.getElementById('activeAlerts').textContent = incidents.filter(i=>i.urgency==='critical').length;
+  ipmHistory = ipmHistory.filter(t => Date.now()-t < 60000);
+  document.getElementById('ipm').textContent = ipmHistory.length;
+}
+
+// ── FILTERS ──────────────────────────────────────────────────────────────────
+function getFiltered() {
+  return incidents.filter(i => {
+    if (activeFilter !== 'all' && i.urgency !== activeFilter) return false;
+    if (typeFilter && i.type !== typeFilter) return false;
+    return true;
+  });
+}
+
+function setFilter(f, btn) {
+  activeFilter = f;
+  document.querySelectorAll('.filterbar .filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderFeed();
+}
+
+const TYPE_FILTER_NAMES = ['earthquake','weather','flood','fire'];
+
+function setTypeFilter(f, btn) {
+  typeFilter = (typeFilter === f) ? null : f;
+  document.querySelectorAll('.filterbar .filter-btn').forEach(b => {
+    if (TYPE_FILTER_NAMES.some(t => b.getAttribute('data-type') === t)) {
+      b.classList.remove('active');
+    }
+  });
+  if (typeFilter) btn.classList.add('active');
+  renderFeed();
+}
+
+function togglePause() {
+  paused = !paused;
+  const btn = document.getElementById('pauseBtn');
+  btn.textContent = paused ? '▶ Resume' : '⏸ Pause';
+  btn.classList.toggle('paused', paused);
+  if (!paused) renderFeed();
+}
+
+// ── USGS EARTHQUAKES ─────────────────────────────────────────────────────────
+async function fetchUSGS() {
+  try {
+    showDebug('Fetching USGS earthquakes...');
+    const [hourRes, dayRes] = await Promise.all([
+      fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson'),
+      fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson'),
+    ]);
+    const hourData = await hourRes.json();
+    const dayData = await dayRes.json();
+    const allFeatures = [...hourData.features, ...dayData.features];
+    let count = 0;
+    for (const f of allFeatures) {
+      const p = f.properties;
+      const coords = f.geometry?.coordinates;
+      if (!coords) continue;
+      const [lng, lat] = coords;
+      if (!lat || !lng) continue;
+      const mag = p.mag || 0;
+      if (mag < 1.5) continue;
+      addIncident({
+        id: 'usgs_' + f.id,
+        text: `M${mag.toFixed(1)} earthquake — ${p.place}`,
+        author: 'USGS',
+        urgency: mag>=6?'critical':mag>=5?'high':mag>=3?'medium':'low',
+        score: Math.min(Math.round(mag*1.5*10)/10, 10),
+        keywords: ['earthquake'],
+        location: { city: p.place||'Unknown', lat, lng },
+        timestamp: new Date(p.time).toISOString(),
+        type: 'earthquake',
+        source: 'usgs',
+        detail: `Magnitude ${mag.toFixed(1)} · Depth ${(coords[2]||0).toFixed(1)} km · ${p.status||'reviewed'}`,
+        url: p.url,
+      });
+      count++;
+    }
+    showDebug(`USGS: ${count} earthquakes loaded`);
+  } catch(e) {
+    showDebug('USGS error: ' + e.message);
+    console.error('USGS failed:', e);
+  }
+}
+
+// ── NWS WEATHER ALERTS ───────────────────────────────────────────────────────
+async function fetchNWS() {
+  try {
+    showDebug('Fetching NWS alerts...');
+    const res = await fetch('https://api.weather.gov/alerts/active');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    let count = 0;
+    for (const f of (data.features||[])) {
+      const p = f.properties;
+      if (!p || !p.event) continue;
+      const loc = nwsCentroid(f);
+      if (!loc) continue;
+      const urgency = NWS_URGENCY_MAP[p.event] || 'low';
+      addIncident({
+        id: 'nws_' + p.id,
+        text: `${p.event} — ${(p.areaDesc||'').slice(0,100)}`,
+        author: 'National Weather Service',
+        urgency,
+        score: urgency==='critical'?9:urgency==='high'?6:urgency==='medium'?3:1,
+        keywords: [(p.event||'').toLowerCase().split(' ')[0]],
+        location: {
+          city: (p.areaDesc||'').split(';')[0].trim().slice(0,50) || 'Unknown',
+          lat: loc.lat,
+          lng: loc.lng,
+        },
+        timestamp: p.sent || new Date().toISOString(),
+        type: (p.event||'').toLowerCase().includes('flood') ? 'flood' :
+              (p.event||'').toLowerCase().includes('fire') ? 'fire' : 'weather',
+        source: 'nws',
+        detail: p.headline || (p.description||'').slice(0,250),
+        url: p['@id'],
+      });
+      count++;
+    }
+    showDebug(`NWS: ${count} alerts loaded`);
+  } catch(e) {
+    showDebug('NWS error: ' + e.message);
+    console.error('NWS failed:', e);
+  }
+}
+
+// ── LOAD ALL ─────────────────────────────────────────────────────────────────
+async function loadAllSources() {
+  setStatus('Fetching live data...', false);
+  await Promise.allSettled([fetchUSGS(), fetchNWS()]);
+  if (incidents.length > 0) {
+    setStatus('Live — USGS · NWS', true);
+    document.getElementById('demoNotice').style.display = 'none';
+  } else {
+    setStatus('No data — check console', false);
+  }
+}
+
+// ── BOOT ─────────────────────────────────────────────────────────────────────
+window.addEventListener('load', () => {
+  initMap();
+  loadAllSources();
+  setInterval(loadAllSources, 3*60*1000);
+  setInterval(updateActiveAlerts, 10000);
+  setInterval(() => { if (!paused) renderFeed(); }, 30000);
+});
+</script>
+</body>
+</html>
